@@ -1,0 +1,194 @@
+{
+  "name": "Step4 - AI Agent Callback",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ai-agent-callback",
+        "responseMode": "responseNode",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "1ddf6987-a78b-4888-a7f7-7f771be2b46f",
+      "name": "Webhook",
+      "webhookId": "d372bef5-c882-4438-a7d0-8cbb66b998f5"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Lấy payload từ webhook\nconst payload = $input.first().json.body;\n\n// Validate required fields\nif (!payload.request_id) {\n  throw new Error(\"Missing request_id\");\n}\nif (!payload.status) {\n  throw new Error(\"Missing status\");\n}\nif (!payload.ai_result) {\n  throw new Error(\"Missing ai_result\");\n}\n\n// Transform để gửi sang FastAPI\nreturn [{\n  json: {\n    request_id: payload.request_id,\n    status: payload.status,\n    ai_result: {\n      hook_text: payload.ai_result.hook_text || null,\n      voice_over_text: payload.ai_result.voice_over_text || null,\n      text_on_screen: payload.ai_result.text_on_screen || null,\n      image_prompt_en: payload.ai_result.image_prompt_en || null,\n      bgm_vibe: payload.ai_result.bgm_vibe || null,\n      post_caption: payload.ai_result.post_caption || null,\n      hashtags: payload.ai_result.hashtags || [],\n      qc_score: payload.ai_result.qc_score || 0,\n      qc_feedback: payload.ai_result.qc_feedback || null,\n      retry_count: payload.ai_result.retry_count || 0\n    },\n    metadata: payload.metadata || {},\n    error: payload.error || null\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "3cd1989e-f061-41ba-bc07-0ebe06315b07",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://python-service:8000/api/v1/content/ai-output",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        448,
+        0
+      ],
+      "id": "b3eaefb0-6ba9-4d95-860e-84bc0b9963cb",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "ee46cb6e-45d4-4984-8ee0-1ccab85da6f6",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        672,
+        0
+      ],
+      "id": "b7d8531f-de3b-4e19-a7a3-f7283ead3096",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"received\",\n  \"message\": \"Payload received and saved to Notion\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        896,
+        -96
+      ],
+      "id": "bc7f80c7-8a9e-4b0d-913e-d189e06c02ef",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "=={\n  \"status\": \"error\",\n  \"message\": \"{{ $json.error.message }}\"\n}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        896,
+        96
+      ],
+      "id": "ace014d5-9a24-4f9e-b71f-2bb506fb4b24",
+      "name": "Respond to Webhook1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "7f1eda03-f181-44b1-8383-9da9dab8f1aa",
+  "meta": {
+    "instanceId": "ed9045697989804a3b1cc8ba12c0025455bfd3cb6f66ad920641f61c24c45ac3"
+  },
+  "nodeGroups": [],
+  "id": "DN5kL6kvx9sXo8Kb",
+  "tags": []
+}

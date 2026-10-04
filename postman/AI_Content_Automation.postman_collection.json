@@ -1,0 +1,150 @@
+{
+  "info": {
+    "name": "AI Content Automation API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/health"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('Service is python-fastapi', () => {",
+              "  const j = pm.response.json();",
+              "  pm.expect(j.service).to.eql('python-fastapi');",
+              "  pm.expect(j.status).to.eql('ok');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Content Intake",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"request_id\": \"{{request_id}}\",\n  \"product_name\": \"Sản phẩm test\",\n  \"product_link\": \"https://example.com/product\",\n  \"brand_name\": \"BrandTest\",\n  \"hook_text\": \"Bạn có biết...\",\n  \"voice_over_text\": \"Xin chào các bạn...\",\n  \"text_on_screen\": \"Text on screen 1\",\n  \"image_prompt_en\": \"A beautiful product...\",\n  \"bgm_vibe\": \"chill\",\n  \"post_caption\": \"Caption test\",\n  \"hashtags\": \"tag1,tag2,tag3\"\n}"
+        },
+        "url": "{{base_url}}/api/v1/content/intake"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('Intake success', () => {",
+              "  const j = pm.response.json();",
+              "  pm.expect(j.success).to.be.true;",
+              "  pm.expect(j.data.request_id).to.eql(pm.environment.get('request_id'));",
+              "  pm.expect(j.meta.request_id).to.be.a('string');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Get Content By ID",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/api/v1/content/{{request_id}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('request_id matches', () => {",
+              "  const j = pm.response.json();",
+              "  pm.expect(j.success).to.be.true;",
+              "  pm.expect(j.data.request_id).to.eql(pm.environment.get('request_id'));",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "List Contents",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{base_url}}/api/v1/content?limit=5",
+          "host": ["{{base_url}}"],
+          "path": ["api", "v1", "content"],
+          "query": [
+            {
+              "key": "limit",
+              "value": "5"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('Has items array', () => {",
+              "  const j = pm.response.json();",
+              "  pm.expect(j.success).to.be.true;",
+              "  pm.expect(j.data.items).to.be.an('array');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "AI Output Callback",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"request_id\": \"{{request_id}}\",\n  \"status\": \"success\",\n  \"ai_result\": {\n    \"hook_text\": \"3 giây đầu thu hút...\",\n    \"voice_over_text\": \"Kịch bản đọc...\",\n    \"text_on_screen\": \"Chữ hiện trên màn hình\",\n    \"image_prompt_en\": \"A highly detailed product...\",\n    \"bgm_vibe\": \"Sôi động\",\n    \"post_caption\": \"Caption TikTok\",\n    \"hashtags\": [\"#xuhuong\", \"#review\"],\n    \"qc_score\": 9.5,\n    \"qc_feedback\": \"Rất tốt\",\n    \"retry_count\": 0\n  },\n  \"metadata\": {\n    \"processing_time_seconds\": 45,\n    \"model_used\": \"gemini-3.8-flash\",\n    \"created_at\": \"2026-10-04T12:00:00+07:00\"\n  },\n  \"error\": null\n}"
+        },
+        "url": "{{base_url}}/api/v1/content/ai-output"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('AI Output success', () => {",
+              "  const j = pm.response.json();",
+              "  pm.expect(j.success).to.be.true;",
+              "  pm.expect(j.data.request_id).to.eql(pm.environment.get('request_id'));",
+              "  pm.expect(j.data.notion_page_id).to.be.a('string');",
+              "});"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
