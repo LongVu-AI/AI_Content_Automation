@@ -65,6 +65,11 @@ class AIOutputRequest(BaseModel):
     metadata: Optional[AIMetadata] = None
     error: Optional[dict] = None
 
+class StatusUpdateRequest(BaseModel):
+    status: Literal["APPROVED", "NEEDS_REVISION", "PUBLISHING", "PUBLISHED", "FAILED", "SCHEDULED"]
+    reviewed_by: Optional[str] = None
+    note: Optional[str] = None
+
 class ApiResponse(BaseModel):
     success: bool
     data: Optional[dict] = None
@@ -107,6 +112,25 @@ def content_intake(payload: ContentIntakeRequest):
         "error": None,
         "meta": make_meta()
     }
+
+@app.get("/api/v1/content/pending-review", response_model=ApiResponse)
+def list_pending_reviews():
+    try:
+        data = notion_client.get_pending_reviews()
+        return {
+            "success": True,
+            "data": {"items": data},
+            "error": None,
+            "meta": make_meta()
+        }
+    except Exception as e:
+        logger.error(f"Notion API Error: {e}")
+        return {
+            "success": False,
+            "data": None,
+            "error": {"code": "NOTION_API_ERROR", "message": str(e)},
+            "meta": make_meta()
+        }
 
 @app.get("/api/v1/content/{request_id}", response_model=ApiResponse)
 def get_content(request_id: str):
@@ -171,6 +195,38 @@ def content_ai_output(payload: AIOutputRequest):
         }
     except Exception as e:
         logger.error(f"Lỗi khi lưu AI Output lên Notion: {e}")
+        return {
+            "success": False,
+            "data": None,
+            "error": {"code": "NOTION_UPDATE_ERROR", "message": str(e)},
+            "meta": make_meta()
+        }
+
+@app.patch("/api/v1/content/{request_id}/status", response_model=ApiResponse)
+def update_content_status(request_id: str, payload: StatusUpdateRequest):
+    try:
+        page_id = notion_client.update_status(
+            request_id, payload.status, payload.reviewed_by, payload.note
+        )
+        if not page_id:
+            return {
+                "success": False,
+                "data": None,
+                "error": {"code": "CONTENT_NOT_FOUND", "message": "Không tìm thấy request_id trong Notion"},
+                "meta": make_meta()
+            }
+        return {
+            "success": True,
+            "data": {
+                "request_id": request_id,
+                "status": payload.status,
+                "updated_at": now_iso()
+            },
+            "error": None,
+            "meta": make_meta()
+        }
+    except Exception as e:
+        logger.error(f"Notion Update Error: {e}")
         return {
             "success": False,
             "data": None,

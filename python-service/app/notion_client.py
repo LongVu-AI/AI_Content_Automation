@@ -180,3 +180,48 @@ def create_ai_output(payload) -> str:
             properties=properties
         )
         return page["id"]
+
+def get_pending_reviews() -> list:
+    if not notion or not NOTION_DATABASE_ID:
+        raise Exception("Notion client chưa được khởi tạo (thiếu ENV).")
+    
+    response = notion.databases.query(
+        database_id=NOTION_DATABASE_ID,
+        filter={
+            "property": "status",
+            "select": {
+                "equals": "PENDING_REVIEW"
+            }
+        }
+    )
+    return [parse_notion_page(page) for page in response.get("results", [])]
+
+def update_status(request_id: str, status: str, reviewed_by: str | None = None, note: str | None = None) -> str | None:
+    if not notion or not NOTION_DATABASE_ID:
+        raise Exception("Notion client chưa được khởi tạo (thiếu ENV).")
+        
+    response = notion.databases.query(
+        database_id=NOTION_DATABASE_ID,
+        filter={
+            "property": "request_id",
+            "title": {
+                "equals": request_id
+            }
+        }
+    )
+    results = response.get("results", [])
+    if not results:
+        return None
+        
+    existing_page_id = results[0]["id"]
+    properties = {
+        "status": {"select": {"name": status}}
+    }
+    
+    if reviewed_by:
+        note_text = note if note else ""
+        msg = f"[REVIEWED by {reviewed_by}] {note_text}".strip()
+        properties["last_error"] = {"rich_text": [{"text": {"content": msg}}]}
+        
+    page = notion.pages.update(page_id=existing_page_id, properties=properties)
+    return page["id"]

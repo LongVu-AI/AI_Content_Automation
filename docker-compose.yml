@@ -7,6 +7,10 @@ services:
       - "5678:5678"
     volumes:
       - n8n_data:/home/node/.n8n
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
     restart: unless-stopped
 
   python-service:
@@ -19,6 +23,8 @@ services:
       - NOTION_TOKEN=${NOTION_TOKEN}
       - NOTION_DATABASE_ID=${NOTION_DATABASE_ID}
       - MASTER_DB_PROVIDER=${MASTER_DB_PROVIDER}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
     restart: unless-stopped
 
 volumes:

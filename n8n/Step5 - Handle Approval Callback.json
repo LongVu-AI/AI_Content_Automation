@@ -1,0 +1,147 @@
+{
+  "name": "Step5 - Handle Approval Callback",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "telegram-callback",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "5a44b44c-f173-4546-9988-0022ad365896",
+      "name": "Webhook",
+      "webhookId": "14262ba8-463b-4337-aba7-366a1fa1341a"
+    },
+    {
+      "parameters": {
+        "jsCode": "const update = $input.first().json.body;\n\nif (!update.callback_query) {\n  return [];\n}\n\nconst data = update.callback_query.data;\nconst [action, request_id] = data.split(\"|\");\nconst status = action === \"approve\" ? \"APPROVED\" : \"NEEDS_REVISION\";\n\n// Note động theo action\nconst note = action === \"approve\" \n  ? \"Approved via Telegram\" \n  : \"Needs revision via Telegram\";\n\nreturn [{\n  json: {\n    request_id: request_id,\n    status: status,\n    reviewed_by: update.callback_query.from.first_name || \"Unknown\",\n    note: note,   // ← thêm\n    callback_query_id: update.callback_query.id,\n    chat_id: update.callback_query.message.chat.id,\n    message_id: update.callback_query.message.message_id\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "cf68741c-6522-46f8-be56-c9cf5d943642",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=http://python-service:8000/api/v1/content/{{ $json.request_id }}/status",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"status\": \"{{ $json.status }}\",\n  \"reviewed_by\": \"{{ $json.reviewed_by }}\",\n  \"note\": \"{{ $json.note }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        448,
+        0
+      ],
+      "id": "ca4675e9-560f-433e-bd7d-6d4b79e0d6ff",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/answerCallbackQuery",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"callback_query_id\": \"{{ $('Code in JavaScript').item.json.callback_query_id }}\",\n  \"text\": \"Đã cập nhật: {{ $('Code in JavaScript').item.json.status }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        592,
+        0
+      ],
+      "id": "69118e4e-cb3b-4ec7-8084-51aa2bb3c805",
+      "name": "HTTP Request1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/editMessageReplyMarkup",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": \"{{ $('Code in JavaScript').item.json.chat_id }}\",\n  \"message_id\": \"{{ $('Code in JavaScript').item.json.message_id }}\",\n  \"reply_markup\": {\n    \"inline_keyboard\": []\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        784,
+        0
+      ],
+      "id": "1392e12b-65d7-49c6-9151-3dcb881724a3",
+      "name": "HTTP Request2"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "a8892c61-7f24-4960-83ed-ed40484645c0",
+  "meta": {
+    "instanceId": "ed9045697989804a3b1cc8ba12c0025455bfd3cb6f66ad920641f61c24c45ac3"
+  },
+  "nodeGroups": [],
+  "id": "GGPCczuqIanJ65rG",
+  "tags": []
+}

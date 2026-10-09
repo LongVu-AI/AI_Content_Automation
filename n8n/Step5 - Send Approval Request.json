@@ -1,0 +1,109 @@
+{
+  "name": "Step5 - Send Approval Request",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "f08af7da-6b22-4f7a-87b9-471a634c5337",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "url": "http://python-service:8000/api/v1/content/pending-review",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        224,
+        0
+      ],
+      "id": "62557900-5bf3-46f6-bfaf-7eca2b05a195",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst items = response.data?.items || [];\n\n// Chỉ lấy item có status = PENDING_REVIEW\nreturn items\n  .filter(item => item.status === \"PENDING_REVIEW\")\n  .map(item => ({ json: item }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "39d6d0fe-6f46-4882-be36-822e6472fa68",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": \"{{ $env.TELEGRAM_CHAT_ID }}\",\n  \"text\": \"🎬 *VIDEO CẦN DUYỆT*\\n\\n📌 Request ID: `{{ $json.request_id }}`\\n📦 Sản phẩm: {{ $json.product_name }}\\n🎣 Hook: {{ $json.hook_text }}\\n⭐ QC Score: {{ $json.qc_score }}\\n\\nAnh/chị xem và bấm nút duyệt bên dưới.\",\n  \"parse_mode\": \"Markdown\",\n  \"reply_markup\": {\n    \"inline_keyboard\": [\n      [\n        {\n          \"text\": \"✅ DUYỆT\",\n          \"callback_data\": \"approve|{{ $json.request_id }}\"\n        },\n        {\n          \"text\": \"❌ CẦN SỬA\",\n          \"callback_data\": \"revise|{{ $json.request_id }}\"\n        }\n      ]\n    ]\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        672,
+        0
+      ],
+      "id": "41388351-bca2-4c3e-88ab-5497faee7e7d",
+      "name": "HTTP Request1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "67dc230c-7394-4eaf-80d3-ee86802544cb",
+  "meta": {
+    "instanceId": "ed9045697989804a3b1cc8ba12c0025455bfd3cb6f66ad920641f61c24c45ac3"
+  },
+  "nodeGroups": [],
+  "id": "blGVHzSezfsE4UeH",
+  "tags": []
+}
