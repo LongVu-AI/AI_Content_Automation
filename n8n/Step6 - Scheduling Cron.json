@@ -1,0 +1,275 @@
+{
+  "name": "Step6 - Scheduling Cron",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/5 * * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "7a35c24b-32bf-412e-8483-e18e80a01001",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "url": "http://python-service:8000/api/v1/content/scheduled-due",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        224,
+        0
+      ],
+      "id": "7a35c24b-32bf-412e-8483-e18e80a01002",
+      "name": "Get Scheduled Due"
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst items = response.data?.items || [];\nif (!items.length) {\n  return [];\n}\nreturn items.map(item => ({ json: item }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "7a35c24b-32bf-412e-8483-e18e80a01003",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        672,
+        0
+      ],
+      "id": "7a35c24b-32bf-412e-8483-e18e80a01004",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://python-service:8000/api/v1/content/{{ $json.request_id }}/lock",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"execution_id\": \"{{ $execution.id }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        896,
+        -96
+      ],
+      "id": "7a35c24b-32bf-412e-8483-e18e80a01005",
+      "name": "HTTP Request - Lock"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "lock-check",
+              "leftValue": "={{ $json.data?.locked }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1120,
+        -96
+      ],
+      "id": "7a35c24b-32bf-412e-8483-e18e80a01006",
+      "name": "If Locked"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://python-service:8000/api/v1/content/{{ $('Loop Over Items').item.json.request_id }}/publish",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"execution_id\": \"{{ $execution.id }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1344,
+        -192
+      ],
+      "id": "7a35c24b-32bf-412e-8483-e18e80a01007",
+      "name": "HTTP Request - Publish"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1344,
+        0
+      ],
+      "id": "7a35c24b-32bf-412e-8483-e18e80a01008",
+      "name": "No Operation"
+    },
+    {
+      "parameters": {
+        "amount": 2,
+        "unit": "seconds"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1568,
+        -96
+      ],
+      "id": "7a35c24b-32bf-412e-8483-e18e80a01009",
+      "name": "Wait 2s"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Scheduled Due",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Scheduled Due": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Lock",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Lock": {
+      "main": [
+        [
+          {
+            "node": "If Locked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Locked": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Publish",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Publish": {
+      "main": [
+        [
+          {
+            "node": "Wait 2s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Operation": {
+      "main": [
+        [
+          {
+            "node": "Wait 2s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 2s": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
+

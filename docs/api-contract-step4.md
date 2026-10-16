@@ -90,7 +90,7 @@ Cập nhật trạng thái của nội dung.
   "note": "OK duyet"
 }
 ```
-*Lưu ý: Các giá trị `status` hợp lệ: `APPROVED`, `NEEDS_REVISION`, `PUBLISHING`, `PUBLISHED`, `FAILED`, `SCHEDULED`.*
+*Lưu ý: Các giá trị `status` hợp lệ: `PENDING_REVIEW`, `APPROVED`, `NEEDS_REVISION`, `PUBLISHING`, `PUBLISHED`, `FAILED`, `SCHEDULED`.*
 
 #### Response
 ```json

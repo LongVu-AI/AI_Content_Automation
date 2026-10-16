@@ -1,5 +1,6 @@
 import os
 import logging
+from datetime import datetime, timezone
 from notion_client import Client
 from notion_client.errors import APIResponseError
 
@@ -14,6 +15,14 @@ if not NOTION_TOKEN or not NOTION_DATABASE_ID:
 notion = Client(auth=NOTION_TOKEN) if NOTION_TOKEN else None
 
 def parse_notion_page(page: dict) -> dict:
+    """
+    Parse page object từ Notion DB thành dictionary chuẩn.
+    
+    Lưu ý: Nếu Notion Database thiếu các cột mới như 'locked_by' (Rich text)
+    hoặc 'locked_at' (Date), người dùng cần thêm thủ công trên Notion:
+    - locked_by: Rich text (Text) -- lưu execution_id của n8n
+    - locked_at: Date -- lưu thời điểm khóa bản ghi
+    """
     props = page.get("properties", {})
     
     def get_title(prop_name):
@@ -76,7 +85,9 @@ def parse_notion_page(page: dict) -> dict:
         "published_at": get_date("published_at"),
         "tiktok_publish_id": get_rich_text("tiktok_publish_id"),
         "retry_count": get_number("retry_count"),
-        "last_error": get_rich_text("last_error")
+        "last_error": get_rich_text("last_error"),
+        "locked_by": get_rich_text("locked_by"),
+        "locked_at": get_date("locked_at")
     }
 
 def get_content_by_id(request_id: str) -> dict | None:
@@ -225,3 +236,141 @@ def update_status(request_id: str, status: str, reviewed_by: str | None = None, 
         
     page = notion.pages.update(page_id=existing_page_id, properties=properties)
     return page["id"]
+
+def get_scheduled_due() -> list:
+    """
+    Query Notion DB với filter:
+    - status = "APPROVED"
+    - scheduled_at <= now
+    - locked_by is empty
+    Sort theo scheduled_at asc.
+    Return list items.
+    """
+    if not notion or not NOTION_DATABASE_ID:
+        raise Exception("Notion client chưa được khởi tạo (thiếu ENV).")
+        
+    now_str = datetime.now(timezone.utc).isoformat()
+    try:
+        response = notion.databases.query(
+            database_id=NOTION_DATABASE_ID,
+            filter={
+                "and": [
+                    {
+                        "property": "status",
+                        "select": {
+                            "equals": "APPROVED"
+                        }
+                    },
+                    {
+                        "property": "scheduled_at",
+                        "date": {
+                            "on_or_before": now_str
+                        }
+                    },
+                    {
+                        "property": "locked_by",
+                        "rich_text": {
+                            "is_empty": True
+                        }
+                    }
+                ]
+            },
+            sorts=[
+                {
+                    "property": "scheduled_at",
+                    "direction": "ascending"
+                }
+            ]
+        )
+    except Exception as e:
+        if "locked_by" in str(e) or "locked_at" in str(e) or "scheduled_at" in str(e):
+            logger.error("Notion DB thiếu hoặc sai kiểu cột locked_by / locked_at / scheduled_at. Vui lòng kiểm tra lại cấu hình Notion DB.")
+        raise e
+        
+    return [parse_notion_page(page) for page in response.get("results", [])]
+
+def lock_and_publish(request_id: str, execution_id: str) -> dict:
+    """
+    Atomic logic:
+    1. Query page theo request_id.
+    2. Kiểm tra: nếu status != "APPROVED" hoặc locked_by không rỗng → return {locked: False, reason: "already_processed"}.
+    3. Update page: status = "SCHEDULED", locked_by = execution_id, locked_at = now.
+    4. Re-query page để verify locked_by = execution_id.
+    5. Nếu verify OK → return {locked: True, page_id}.
+    6. Nếu verify fail (race condition) → return {locked: False, reason: "race_lost"}.
+    """
+    if not notion or not NOTION_DATABASE_ID:
+        raise Exception("Notion client chưa được khởi tạo (thiếu ENV).")
+        
+    response = notion.databases.query(
+        database_id=NOTION_DATABASE_ID,
+        filter={
+            "property": "request_id",
+            "title": {
+                "equals": request_id
+            }
+        }
+    )
+    results = response.get("results", [])
+    if not results:
+        return {"locked": False, "reason": "content_not_found"}
+        
+    page = results[0]
+    page_id = page["id"]
+    current_data = parse_notion_page(page)
+    
+    if current_data.get("status") != "APPROVED" or current_data.get("locked_by"):
+        return {"locked": False, "reason": "already_processed"}
+        
+    now_str = datetime.now(timezone.utc).isoformat()
+    properties = {
+        "status": {"select": {"name": "SCHEDULED"}},
+        "locked_by": {"rich_text": [{"text": {"content": execution_id}}]},
+        "locked_at": {"date": {"start": now_str}}
+    }
+    
+    notion.pages.update(page_id=page_id, properties=properties)
+    
+    recheck_page = notion.pages.retrieve(page_id=page_id)
+    recheck_data = parse_notion_page(recheck_page)
+    
+    if recheck_data.get("locked_by") == execution_id:
+        return {"locked": True, "page_id": page_id}
+    else:
+        return {"locked": False, "reason": "race_lost"}
+
+def update_status_publishing(request_id: str, execution_id: str) -> dict:
+    """
+    - Kiểm tra locked_by = execution_id trước khi update.
+    - Update status = "PUBLISHING".
+    - Return {success: True, page_id}.
+    """
+    if not notion or not NOTION_DATABASE_ID:
+        raise Exception("Notion client chưa được khởi tạo (thiếu ENV).")
+        
+    response = notion.databases.query(
+        database_id=NOTION_DATABASE_ID,
+        filter={
+            "property": "request_id",
+            "title": {
+                "equals": request_id
+            }
+        }
+    )
+    results = response.get("results", [])
+    if not results:
+        return {"success": False, "reason": "content_not_found"}
+        
+    page = results[0]
+    page_id = page["id"]
+    current_data = parse_notion_page(page)
+    
+    if current_data.get("locked_by") != execution_id:
+        return {"success": False, "reason": "lock_mismatch_or_not_locked"}
+        
+    properties = {
+        "status": {"select": {"name": "PUBLISHING"}}
+    }
+    notion.pages.update(page_id=page_id, properties=properties)
+    return {"success": True, "page_id": page_id}
+
