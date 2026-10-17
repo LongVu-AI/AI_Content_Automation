@@ -2,6 +2,8 @@
 
 > Hệ thống tự động hóa toàn diện quy trình sáng tạo, kiểm duyệt và đăng tải video ngắn lên TikTok sử dụng AI Agent, Notion Database, Telegram Bot và n8n Orchestrator.
 
+📁 **Thư mục Google Drive chung của Team**: [Truy cập Google Drive](https://drive.google.com/drive/folders/1MD7l8SuA2SuTO8lCyjax_JzmyA62KJ1t?usp=drive_link) *(Nơi lưu trữ và lấy link video duyệt nội dung)*.
+
 ---
 
 ## 📖 Hướng Dẫn Sử Dụng Nhanh

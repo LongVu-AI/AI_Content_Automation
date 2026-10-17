@@ -18,19 +18,18 @@ Tài liệu hướng dẫn tinh gọn dành cho bộ phận **Content** và **AI
     * `Link` (Đường dẫn sản phẩm Shopee/TikTok Shop)
     * `Đối tượng` (Ví dụ: Sinh viên, nhân viên văn phòng)
 
-* **Bước 2: Upload video và đính kèm link vào Notion**
-  * Khi có video mới, hãy upload video lên [Google Drive chung của Team](https://drive.google.com/drive/folders/1MD7l8SuA2SuTO8lCyjax_JzmyA62KJ1t?usp=drive_link) 📁
-  * Đảm bảo quyền chia sẻ của file ở chế độ xem ("Bất kỳ ai có đường liên kết").
-  * Copy link file Google Drive và dán vào cột `video_url` trong dòng tương ứng trên Notion trước khi chuyển trạng thái sang `PENDING_REVIEW` (chờ duyệt).
+* **Bước 1.1: Upload video lên thư mục Google Drive chung của team**
+  * Upload video lên thư mục Google Drive chung của team tại đây: [Thư mục Google Drive chung](https://drive.google.com/drive/folders/1MD7l8SuA2SuTO8lCyjax_JzmyA62KJ1t?usp=drive_link) 📁
+  * *Lưu ý*: Sau khi upload, bấm chuột phải vào file video -> chọn 'Share' (Chia sẻ) -> chọn 'Anyone with the link' -> Copy link. Dán link này vào cột `video_url` trong Notion trước khi chuyển trạng thái sang `PENDING_REVIEW` (chờ duyệt).
 
-* **Bước 3: Xem và Duyệt video trên Telegram**
+* **Bước 2: Xem và Duyệt video trên Telegram**
   * Mở Telegram và vào group **"AI Content Approval"** 💬
   * Tin nhắn thông báo sẽ có kèm link: **👉 Bấm vào đây để xem video**. Bấm vào để xem video trên Google Drive.
   * Bấm chọn 1 trong 2 nút bấm tương tác:
     * ✅ **[DUYỆT]** (APPROVED): Video đạt yêu cầu, tự động chuyển vào hàng đợi đăng lên TikTok theo lịch.
     * ⚠️ **[CẦN SỬA]** (NEEDS_REVISION): Kịch bản hoặc video chưa ưng ý, hệ thống sẽ đánh dấu để điều chỉnh lại.
 
-* **Bước 4: Kiểm tra trạng thái trên Notion**
+* **Bước 3: Kiểm tra trạng thái trên Notion**
   * Quay lại bảng [Notion Master Database](https://www.notion.so/3ebbd9bc891f80d1ac8dd0258c4473ed), xem cột `status` đã đổi thành:
     * `APPROVED` (nếu bấm Duyệt) 
     * `NEEDS_REVISION` (nếu bấm Cần sửa)
