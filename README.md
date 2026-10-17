@@ -6,7 +6,7 @@
 
 ## 📖 Hướng Dẫn Sử Dụng Nhanh
 
-Xem tài liệu hướng dẫn sử dụng nhanh dành cho Content Creator (anh Bảo) và AI Agent Developer (anh Quân) tại:
+Xem tài liệu hướng dẫn sử dụng nhanh dành cho Content Creator (Bảo) và AI Agent Developer (Quân) tại:
 
 👉 **[docs/HUONG_DAN_SU_DUNG_NHANH.md](docs/HUONG_DAN_SU_DUNG_NHANH.md)**
 

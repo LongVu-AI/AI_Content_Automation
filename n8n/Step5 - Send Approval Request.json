@@ -45,7 +45,7 @@
         "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"chat_id\": \"{{ $env.TELEGRAM_CHAT_ID }}\",\n  \"text\": \"🎬 *VIDEO CẦN DUYỆT*\\n\\n📌 Request ID: `{{ $json.request_id }}`\\n📦 Sản phẩm: {{ $json.product_name }}\\n🎣 Hook: {{ $json.hook_text }}\\n⭐ QC Score: {{ $json.qc_score }}\\n\\nAnh/chị xem và bấm nút duyệt bên dưới.\",\n  \"parse_mode\": \"Markdown\",\n  \"reply_markup\": {\n    \"inline_keyboard\": [\n      [\n        {\n          \"text\": \"✅ DUYỆT\",\n          \"callback_data\": \"approve|{{ $json.request_id }}\"\n        },\n        {\n          \"text\": \"❌ CẦN SỬA\",\n          \"callback_data\": \"revise|{{ $json.request_id }}\"\n        }\n      ]\n    ]\n  }\n}",
+        "jsonBody": "={\n  \"chat_id\": \"{{ $env.TELEGRAM_CHAT_ID }}\",\n  \"text\": \"🎬 *VIDEO CẦN DUYỆT*\\n\\n📌 Request ID: `{{ $json.request_id }}`\\n📦 Sản phẩm: {{ $json.product_name }}\\n🎣 Hook: {{ $json.hook_text }}\\n⭐ QC Score: {{ $json.qc_score }}\\n{{ $json.video_url ? ('👉 *Bấm vào đây để xem video:* ' + $json.video_url.replace(/_/g, '\\\\_')) : 'Chưa có link video đính kèm' }}\\n\\nAnh/chị xem và bấm nút duyệt bên dưới.\",\n  \"parse_mode\": \"Markdown\",\n  \"reply_markup\": {\n    \"inline_keyboard\": [\n      [\n        {\n          \"text\": \"✅ DUYỆT\",\n          \"callback_data\": \"approve|{{ $json.request_id }}\"\n        },\n        {\n          \"text\": \"❌ CẦN SỬA\",\n          \"callback_data\": \"revise|{{ $json.request_id }}\"\n        }\n      ]\n    ]\n  }\n}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
