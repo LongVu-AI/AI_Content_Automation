@@ -1,0 +1,296 @@
+{
+  "name": "Step9 - Retry Failed",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/15 * * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "9a35c24b-32bf-412e-8483-e18e80a01001",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "url": "http://python-service:8000/api/v1/content/failed",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        220,
+        0
+      ],
+      "id": "9a35c24b-32bf-412e-8483-e18e80a01002",
+      "name": "Get Failed Content"
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst items = response.data?.items || [];\nconst canRetry = items.filter(item => (item.retry_count || 0) < 3);\nif (!canRetry.length) {\n  return [];\n}\nreturn canRetry.map(item => ({ json: item }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "id": "9a35c24b-32bf-412e-8483-e18e80a01003",
+      "name": "Code Filter Retry Count"
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        660,
+        0
+      ],
+      "id": "9a35c24b-32bf-412e-8483-e18e80a01004",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://python-service:8000/api/v1/tiktok/publish-from-url",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"request_id\": \"{{ $('Loop Over Items').item.json.request_id }}\",\n  \"video_url\": \"{{ $('Loop Over Items').item.json.video_url }}\",\n  \"title\": \"{{ $('Loop Over Items').item.json.product_name || 'AI TikTok Video Retry' }}\",\n  \"privacy_level\": \"SELF_ONLY\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        880,
+        -96
+      ],
+      "id": "9a35c24b-32bf-412e-8483-e18e80a01005",
+      "name": "HTTP Request - Retry Publish"
+    },
+    {
+      "parameters": {
+        "amount": 30,
+        "unit": "seconds"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        -96
+      ],
+      "id": "9a35c24b-32bf-412e-8483-e18e80a01006",
+      "name": "Wait 30s"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://python-service:8000/api/v1/tiktok/check-status",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"request_id\": \"{{ $('Loop Over Items').item.json.request_id }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1320,
+        -96
+      ],
+      "id": "9a35c24b-32bf-412e-8483-e18e80a01007",
+      "name": "HTTP Request - Check Status"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "status-check",
+              "leftValue": "={{ $json.data?.new_status }}",
+              "rightValue": "PUBLISHED",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1540,
+        -96
+      ],
+      "id": "9a35c24b-32bf-412e-8483-e18e80a01008",
+      "name": "IF Status Published"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1760,
+        0
+      ],
+      "id": "9a35c24b-32bf-412e-8483-e18e80a01009",
+      "name": "No Operation - Not Yet Published"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1760,
+        -192
+      ],
+      "id": "9a35c24b-32bf-412e-8483-e18e80a01010",
+      "name": "NoOp - Published Success"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Failed Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Failed Content": {
+      "main": [
+        [
+          {
+            "node": "Code Filter Retry Count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code Filter Retry Count": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Retry Publish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Retry Publish": {
+      "main": [
+        [
+          {
+            "node": "Wait 30s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 30s": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Check Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Check Status": {
+      "main": [
+        [
+          {
+            "node": "IF Status Published",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Status Published": {
+      "main": [
+        [
+          {
+            "node": "NoOp - Published Success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation - Not Yet Published",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NoOp - Published Success": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Operation - Not Yet Published": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
+

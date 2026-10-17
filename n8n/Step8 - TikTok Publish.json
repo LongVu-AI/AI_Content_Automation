@@ -1,0 +1,323 @@
+{
+  "name": "Step8 - TikTok Publish",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/10 * * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "8a35c24b-32bf-412e-8483-e18e80a01001",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "url": "http://python-service:8000/api/v1/content/scheduled-due",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        220,
+        0
+      ],
+      "id": "8a35c24b-32bf-412e-8483-e18e80a01002",
+      "name": "Get Scheduled Due"
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst items = response.data?.items || [];\nif (!items.length) {\n  return [];\n}\nconst publishable = items.filter(item => item.status === 'SCHEDULED' || item.status === 'APPROVED');\nreturn publishable.map(item => ({\n  json: {\n    ...item,\n    check_count: 0\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "id": "8a35c24b-32bf-412e-8483-e18e80a01003",
+      "name": "Code Filter Scheduled"
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        660,
+        0
+      ],
+      "id": "8a35c24b-32bf-412e-8483-e18e80a01004",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://python-service:8000/api/v1/tiktok/publish-from-url",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"request_id\": \"{{ $('Loop Over Items').item.json.request_id }}\",\n  \"video_url\": \"{{ $('Loop Over Items').item.json.video_url }}\",\n  \"title\": \"{{ $('Loop Over Items').item.json.product_name || 'AI TikTok Video' }}\",\n  \"privacy_level\": \"SELF_ONLY\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        880,
+        -96
+      ],
+      "id": "8a35c24b-32bf-412e-8483-e18e80a01005",
+      "name": "POST Publish From URL"
+    },
+    {
+      "parameters": {
+        "amount": 60,
+        "unit": "seconds"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        -96
+      ],
+      "id": "8a35c24b-32bf-412e-8483-e18e80a01006",
+      "name": "Wait 60s"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://python-service:8000/api/v1/tiktok/check-status",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"request_id\": \"{{ $('Loop Over Items').item.json.request_id }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1320,
+        -96
+      ],
+      "id": "8a35c24b-32bf-412e-8483-e18e80a01007",
+      "name": "POST Check Status"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "status-check",
+              "leftValue": "={{ $json.data?.new_status }}",
+              "rightValue": "PUBLISHED",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1540,
+        -96
+      ],
+      "id": "8a35c24b-32bf-412e-8483-e18e80a01008",
+      "name": "IF Status Published"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1760,
+        -192
+      ],
+      "id": "8a35c24b-32bf-412e-8483-e18e80a01009",
+      "name": "NoOp - Published"
+    },
+    {
+      "parameters": {
+        "amount": 30,
+        "unit": "seconds"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1760,
+        0
+      ],
+      "id": "8a35c24b-32bf-412e-8483-e18e80a01010",
+      "name": "Wait 30s"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst checkCount = (item.check_count || 0) + 1;\nif (checkCount >= 5) {\n  return [{ json: { ...item, check_count: checkCount, max_reached: true } }];\n}\nreturn [{ json: { ...item, check_count: checkCount, max_reached: false } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        0
+      ],
+      "id": "8a35c24b-32bf-412e-8483-e18e80a01011",
+      "name": "Code Retry Counter"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Scheduled Due",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Scheduled Due": {
+      "main": [
+        [
+          {
+            "node": "Code Filter Scheduled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code Filter Scheduled": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "POST Publish From URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST Publish From URL": {
+      "main": [
+        [
+          {
+            "node": "Wait 60s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 60s": {
+      "main": [
+        [
+          {
+            "node": "POST Check Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST Check Status": {
+      "main": [
+        [
+          {
+            "node": "IF Status Published",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Status Published": {
+      "main": [
+        [
+          {
+            "node": "NoOp - Published",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 30s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NoOp - Published": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 30s": {
+      "main": [
+        [
+          {
+            "node": "Code Retry Counter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code Retry Counter": {
+      "main": [
+        [
+          {
+            "node": "POST Check Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
+

@@ -1,10 +1,10 @@
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel
-from typing import Optional, Literal, Dict
+from typing import Optional, Literal, Dict, Any
 from datetime import datetime, timezone, timedelta
 import uuid
-import logging
 import secrets
 import time
 from dotenv import load_dotenv
@@ -12,16 +12,20 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from app import notion_client, token_storage
+from app.logger import get_logger
+from app.notifier import send_telegram_alert
 from app.tiktok_client import (
     TikTokClient,
     TikTokApiException,
     TokenExpiredException,
     RateLimitException
 )
+from app.tiktok_publisher import TikTokPublisher
 
-logger = logging.getLogger(__name__)
+logger = get_logger("main")
 
 tiktok_client = TikTokClient()
+tiktok_publisher = TikTokPublisher(tiktok_client)
 oauth_states: Dict[str, float] = {}
 
 app = FastAPI(
@@ -95,6 +99,16 @@ class TokenInfo(BaseModel):
 class POCUploadRequest(BaseModel):
     video_url: str
 
+class PublishRequest(BaseModel):
+    request_id: str
+    video_url: Optional[str] = None
+    video_path: Optional[str] = None
+    title: Optional[str] = "AI TikTok Video"
+    privacy_level: Optional[str] = "SELF_ONLY"
+
+class PublishStatusRequest(BaseModel):
+    request_id: str
+
 class ApiResponse(BaseModel):
     success: bool
     data: Optional[dict] = None
@@ -105,11 +119,94 @@ class ApiResponse(BaseModel):
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
-def make_meta() -> dict:
+def make_meta(req_id: Optional[str] = None) -> dict:
     return {
-        "request_id": str(uuid.uuid4()),
+        "request_id": req_id or str(uuid.uuid4()),
         "timestamp": now_iso()
     }
+
+# ===== Middleware & Exception Handlers =====
+@app.middleware("http")
+async def logging_middleware(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    request.state.request_id = request_id
+    start_time = time.time()
+
+    content_length = request.headers.get("content-length")
+    body_size = int(content_length) if content_length and content_length.isdigit() else 0
+
+    logger.info(
+        f"Incoming request {request.method} {request.url.path}",
+        extra={
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+            "body_size": body_size
+        }
+    )
+
+    response = await call_next(request)
+
+    duration_ms = round((time.time() - start_time) * 1000, 2)
+    response.headers["X-Request-ID"] = request_id
+
+    logger.info(
+        f"Completed request {request.method} {request.url.path} with status {response.status_code} in {duration_ms}ms",
+        extra={
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": response.status_code,
+            "duration_ms": duration_ms
+        }
+    )
+    return response
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    request_id = getattr(request.state, "request_id", None) or str(uuid.uuid4())
+    error_code = "NOT_FOUND" if exc.status_code == 404 else f"HTTP_{exc.status_code}"
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "success": False,
+            "data": None,
+            "error": {
+                "code": error_code,
+                "message": exc.detail
+            },
+            "meta": make_meta(request_id)
+        },
+        headers={"X-Request-ID": request_id}
+    )
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    request_id = getattr(request.state, "request_id", None) or str(uuid.uuid4())
+    logger.error(
+        f"Unhandled error on {request.method} {request.url.path}: {exc}",
+        extra={"request_id": request_id, "path": request.url.path, "error": str(exc)},
+        exc_info=True
+    )
+    send_telegram_alert(
+        message=f"Unhandled internal server error on {request.method} {request.url.path}: {exc}",
+        severity="CRITICAL",
+        request_id=request_id,
+        component="FastAPI Global Exception Handler"
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "data": None,
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": "Internal server error occurred."
+            },
+            "meta": make_meta(request_id)
+        },
+        headers={"X-Request-ID": request_id}
+    )
 
 # ===== Endpoints =====
 @app.get("/health", response_model=HealthResponse)
@@ -174,6 +271,27 @@ def get_scheduled_due():
             "data": None,
             "error": {"code": "NOTION_API_ERROR", "message": str(e)},
             "meta": make_meta()
+        }
+
+@app.get("/api/v1/content/failed", response_model=ApiResponse)
+def get_failed_content(request: Request):
+    """Lay danh sach cac video co status = FAILED va retry_count < 3 de retry."""
+    req_id = getattr(request.state, "request_id", None)
+    try:
+        data = notion_client.get_failed_contents()
+        return {
+            "success": True,
+            "data": {"items": data, "count": len(data)},
+            "error": None,
+            "meta": make_meta(req_id)
+        }
+    except Exception as e:
+        logger.error(f"Notion Failed Content Error: {e}")
+        return {
+            "success": False,
+            "data": None,
+            "error": {"code": "NOTION_API_ERROR", "message": str(e)},
+            "meta": make_meta(req_id)
         }
 
 @app.get("/api/v1/content/{request_id}", response_model=ApiResponse)
@@ -589,3 +707,185 @@ def poc_upload_video(payload: POCUploadRequest):
             "error": {"code": "POC_UPLOAD_ERROR", "message": str(e)},
             "meta": make_meta()
         }
+
+@app.post("/api/v1/tiktok/publish-from-url", response_model=ApiResponse)
+def publish_from_url(payload: PublishRequest, request: Request):
+    """Publish video TikTok bang phuong thuc PULL_FROM_URL kem retry tracking."""
+    req_id = getattr(request.state, "request_id", None)
+    content = None
+    try:
+        content = notion_client.get_content_by_id(payload.request_id)
+        current_retry = (content.get("retry_count") or 0) if content else 0
+        if current_retry >= 3:
+            return {
+                "success": False,
+                "data": None,
+                "error": {
+                    "code": "MAX_RETRY_EXCEEDED",
+                    "message": f"So lan thu lai da vuot qua gioi han cho phep (retry_count={current_retry})."
+                },
+                "meta": make_meta(req_id)
+            }
+
+        video_url = payload.video_url
+        if not video_url:
+            if content and content.get("video_url"):
+                video_url = content.get("video_url")
+            else:
+                return {
+                    "success": False,
+                    "data": None,
+                    "error": {
+                        "code": "MISSING_VIDEO_URL",
+                        "message": "video_url la bat buoc (khong tim thay trong request hoac Notion)."
+                    },
+                    "meta": make_meta(req_id)
+                }
+
+        result = tiktok_publisher.publish_from_url(
+            request_id=payload.request_id,
+            video_url=video_url,
+            title=payload.title or "AI TikTok Video",
+            privacy_level=payload.privacy_level or "SELF_ONLY"
+        )
+        return {
+            "success": True,
+            "data": result,
+            "error": None,
+            "meta": make_meta(req_id)
+        }
+    except Exception as e:
+        logger.error(f"Loi publish_from_url: {e}", extra={"request_id": payload.request_id})
+        new_retry = 1
+        try:
+            new_retry = notion_client.increment_retry_count(payload.request_id)
+            notion_client.log_error(payload.request_id, f"Publish URL that bai: {e}")
+        except Exception as log_err:
+            logger.warning(f"Khong the cap nhat retry_count: {log_err}")
+
+        if new_retry >= 3:
+            try:
+                notion_client.update_publish_status(payload.request_id, status="FAILED", last_error=str(e))
+            except Exception:
+                pass
+            send_telegram_alert(
+                message=f"Publish from URL that bai vuot qua 3 lan cho request {payload.request_id}: {e}",
+                severity="ERROR",
+                request_id=payload.request_id,
+                component="TikTok Publisher (URL)"
+            )
+
+        return {
+            "success": False,
+            "data": None,
+            "error": {"code": "PUBLISH_FROM_URL_FAILED", "message": str(e)},
+            "meta": make_meta(req_id)
+        }
+
+@app.post("/api/v1/tiktok/publish-from-file", response_model=ApiResponse)
+def publish_from_file(payload: PublishRequest, request: Request):
+    """Publish video TikTok bang phuong thuc FILE_UPLOAD chia chunk kem retry tracking."""
+    req_id = getattr(request.state, "request_id", None)
+    try:
+        content = notion_client.get_content_by_id(payload.request_id)
+        current_retry = (content.get("retry_count") or 0) if content else 0
+        if current_retry >= 3:
+            return {
+                "success": False,
+                "data": None,
+                "error": {
+                    "code": "MAX_RETRY_EXCEEDED",
+                    "message": f"So lan thu lai da vuot qua gioi han cho phep (retry_count={current_retry})."
+                },
+                "meta": make_meta(req_id)
+            }
+
+        if not payload.video_path:
+            return {
+                "success": False,
+                "data": None,
+                "error": {
+                    "code": "MISSING_VIDEO_PATH",
+                    "message": "video_path la bat buoc."
+                },
+                "meta": make_meta(req_id)
+            }
+
+        result = tiktok_publisher.publish_from_file(
+            request_id=payload.request_id,
+            video_path=payload.video_path,
+            title=payload.title or "AI TikTok Video",
+            privacy_level=payload.privacy_level or "SELF_ONLY"
+        )
+        return {
+            "success": True,
+            "data": result,
+            "error": None,
+            "meta": make_meta(req_id)
+        }
+    except Exception as e:
+        logger.error(f"Loi publish_from_file: {e}", extra={"request_id": payload.request_id})
+        new_retry = 1
+        try:
+            new_retry = notion_client.increment_retry_count(payload.request_id)
+            notion_client.log_error(payload.request_id, f"Publish file that bai: {e}")
+        except Exception as log_err:
+            logger.warning(f"Khong the cap nhat retry_count: {log_err}")
+
+        if new_retry >= 3:
+            try:
+                notion_client.update_publish_status(payload.request_id, status="FAILED", last_error=str(e))
+            except Exception:
+                pass
+            send_telegram_alert(
+                message=f"Publish from file that bai vuot qua 3 lan cho request {payload.request_id}: {e}",
+                severity="ERROR",
+                request_id=payload.request_id,
+                component="TikTok Publisher (File)"
+            )
+
+        return {
+            "success": False,
+            "data": None,
+            "error": {"code": "PUBLISH_FROM_FILE_FAILED", "message": str(e)},
+            "meta": make_meta(req_id)
+        }
+
+@app.post("/api/v1/tiktok/check-status", response_model=ApiResponse)
+def check_publish_status(payload: PublishStatusRequest):
+    """Kiem tra trang thai video publish tren TikTok va dong bo ve Notion."""
+    try:
+        result = tiktok_publisher.check_and_update_status(payload.request_id)
+        return {
+            "success": True,
+            "data": result,
+            "error": None,
+            "meta": make_meta()
+        }
+    except Exception as e:
+        logger.error(f"Loi check_publish_status: {e}")
+        return {
+            "success": False,
+            "data": None,
+            "error": {"code": "CHECK_STATUS_FAILED", "message": str(e)},
+            "meta": make_meta()
+        }
+
+@app.post("/api/v1/tiktok/webhook")
+def tiktok_webhook(event_payload: Dict[str, Any]):
+    """Webhook nhan callback su kien publish video tu TikTok."""
+    try:
+        logger.info(f"Nhan TikTok webhook: {event_payload}")
+        publish_id = (
+            event_payload.get("publish_id")
+            or event_payload.get("data", {}).get("publish_id")
+            or (event_payload.get("entry", [{}])[0].get("publish_id") if isinstance(event_payload.get("entry"), list) and event_payload.get("entry") else None)
+        )
+        if publish_id:
+            content = notion_client.get_content_by_publish_id(publish_id)
+            if content and content.get("request_id"):
+                tiktok_publisher.check_and_update_status(content["request_id"])
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error(f"Loi xu ly TikTok webhook: {e}")
+        return {"status": "ok"}

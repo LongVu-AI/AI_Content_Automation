@@ -29,6 +29,9 @@ services:
       - TIKTOK_CLIENT_SECRET=${TIKTOK_CLIENT_SECRET}
       - TIKTOK_REDIRECT_URI=${TIKTOK_REDIRECT_URI}
       - NOTION_TOKENS_DB_ID=${NOTION_TOKENS_DB_ID}
+    volumes:
+      - ./logs:/app/logs
+      - ./test-videos:/app/test-videos
     restart: unless-stopped
 
 volumes:

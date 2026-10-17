@@ -1,10 +1,13 @@
 import os
 import logging
 from datetime import datetime, timezone
+from typing import Optional, Dict, Any
 from notion_client import Client
 from notion_client.errors import APIResponseError
 
-logger = logging.getLogger(__name__)
+from app.logger import get_logger
+
+logger = get_logger("notion_client")
 
 NOTION_TOKEN = os.getenv("NOTION_TOKEN")
 NOTION_DATABASE_ID = os.getenv("NOTION_DATABASE_ID")
@@ -79,7 +82,7 @@ def parse_notion_page(page: dict) -> dict:
         "hashtags": get_rich_text("hashtags"),
         "qc_score": get_number("qc_score"),
         "qc_feedback": get_rich_text("qc_feedback"),
-        "video_url": get_url("video_url"),
+        "video_url": get_rich_text("video_url") if props.get("video_url", {}).get("type") == "rich_text" else get_url("video_url"),
         "status": get_select("status"),
         "scheduled_at": get_date("scheduled_at"),
         "published_at": get_date("published_at"),
@@ -373,4 +376,136 @@ def update_status_publishing(request_id: str, execution_id: str) -> dict:
     }
     notion.pages.update(page_id=page_id, properties=properties)
     return {"success": True, "page_id": page_id}
+
+def update_publish_status(
+    request_id: str,
+    status: Optional[str] = None,
+    tiktok_publish_id: Optional[str] = None,
+    published_at: Optional[str] = None,
+    last_error: Optional[str] = None,
+    video_url: Optional[str] = None
+) -> Optional[str]:
+    """Cap nhat cac truong publish len Notion page theo request_id."""
+    if not notion or not NOTION_DATABASE_ID:
+        raise Exception("Notion client chua duoc khoi tao (thieu ENV).")
+
+    response = notion.databases.query(
+        database_id=NOTION_DATABASE_ID,
+        filter={
+            "property": "request_id",
+            "title": {"equals": request_id}
+        }
+    )
+    results = response.get("results", [])
+    if not results:
+        return None
+
+    page_id = results[0]["id"]
+    properties = {}
+    if status:
+        properties["status"] = {"select": {"name": status}}
+    if tiktok_publish_id:
+        properties["tiktok_publish_id"] = {"rich_text": [{"text": {"content": tiktok_publish_id}}]}
+    if published_at:
+        properties["published_at"] = {"date": {"start": published_at}}
+    if last_error is not None:
+        properties["last_error"] = {"rich_text": [{"text": {"content": last_error}}]}
+    if video_url:
+        properties["video_url"] = {"rich_text": [{"text": {"content": video_url}}]}
+
+    if properties:
+        notion.pages.update(page_id=page_id, properties=properties)
+    return page_id
+
+def get_content_by_publish_id(publish_id: str) -> Optional[Dict[str, Any]]:
+    """Tim ban ghi trong Notion theo tiktok_publish_id."""
+    if not notion or not NOTION_DATABASE_ID:
+        raise Exception("Notion client chua duoc khoi tao (thieu ENV).")
+
+    response = notion.databases.query(
+        database_id=NOTION_DATABASE_ID,
+        filter={
+            "property": "tiktok_publish_id",
+            "rich_text": {"equals": publish_id}
+        }
+    )
+    results = response.get("results", [])
+    if not results:
+        return None
+    return parse_notion_page(results[0])
+
+def increment_retry_count(request_id: str) -> int:
+    """Tang retry_count len 1 va luu vao Notion DB, tra ve gia tri moi."""
+    if not notion or not NOTION_DATABASE_ID:
+        raise Exception("Notion client chua duoc khoi tao (thieu ENV).")
+
+    response = notion.databases.query(
+        database_id=NOTION_DATABASE_ID,
+        filter={
+            "property": "request_id",
+            "title": {"equals": request_id}
+        }
+    )
+    results = response.get("results", [])
+    if not results:
+        raise ValueError(f"Khong tim thay content voi request_id: {request_id}")
+
+    page = results[0]
+    page_id = page["id"]
+    current_props = page.get("properties", {})
+    current_count = current_props.get("retry_count", {}).get("number") or 0
+    new_count = int(current_count) + 1
+
+    notion.pages.update(
+        page_id=page_id,
+        properties={
+            "retry_count": {"number": new_count}
+        }
+    )
+    return new_count
+
+def log_error(request_id: str, error_message: str) -> None:
+    """Ghi nhan loi vao cot last_error cua Notion page voi format [{timestamp}] {error_message}."""
+    if not notion or not NOTION_DATABASE_ID:
+        raise Exception("Notion client chua duoc khoi tao (thieu ENV).")
+
+    response = notion.databases.query(
+        database_id=NOTION_DATABASE_ID,
+        filter={
+            "property": "request_id",
+            "title": {"equals": request_id}
+        }
+    )
+    results = response.get("results", [])
+    if not results:
+        raise ValueError(f"Khong tim thay content voi request_id: {request_id}")
+
+    page_id = results[0]["id"]
+    timestamp_str = datetime.now(timezone.utc).isoformat()
+    formatted_error = f"[{timestamp_str}] {error_message}"
+
+    notion.pages.update(
+        page_id=page_id,
+        properties={
+            "last_error": {"rich_text": [{"text": {"content": formatted_error}}]}
+        }
+    )
+
+def get_failed_contents() -> list:
+    """Lay danh sach cac video co status = FAILED va retry_count < 3."""
+    if not notion or not NOTION_DATABASE_ID:
+        raise Exception("Notion client chua duoc khoi tao (thieu ENV).")
+
+    response = notion.databases.query(
+        database_id=NOTION_DATABASE_ID,
+        filter={
+            "property": "status",
+            "select": {"equals": "FAILED"}
+        }
+    )
+    results = [parse_notion_page(p) for p in response.get("results", [])]
+    filtered = [item for item in results if (item.get("retry_count") or 0) < 3]
+    return filtered
+
+
 
