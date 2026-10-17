@@ -36,7 +36,7 @@ Tài liệu hướng dẫn tinh gọn dành cho bộ phận **Content** và **AI
 
 ---
 
-## 💻 Phần 2: Dành Cho Anh Quân (AI Agent - Test Webhook)
+## 💻 Phần 2: Dành Cho  Quân (AI Agent - Test Webhook)
 
 > **Mục tiêu**: Chạy hệ thống local chỉ với 1-click để test gửi payload webhook từ AI Agent sang n8n và FastAPI.
 
