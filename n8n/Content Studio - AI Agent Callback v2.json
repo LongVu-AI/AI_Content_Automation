@@ -1,0 +1,125 @@
+{
+  "name": "Content Studio - AI Agent Callback v2",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "authentication": "headerAuth",
+        "path": "ai-agent-callback-v2",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "studio-v2-webhook",
+      "name": "Webhook v2",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "content-studio-v2",
+      "credentials": {
+        "httpHeaderAuth": {"name": "Content Studio v2 - X-Content-Token"}
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $input.first().json.body;\nif (p.schema_version !== \"2.0\" || !p.request_id || !Array.isArray(p.scenes)) throw new Error(\"Invalid Content Studio v2 payload\");\n// Preserve all versioned data, including character, scenes and publishing.\nreturn [{json:p}];"
+      },
+      "id": "studio-v2-preserve",
+      "name": "Preserve full v2 payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        230,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://python-service:8000/api/v2/content/ai-output",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "id": "studio-v2-http",
+      "name": "Save complete content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        460,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "responseCode": "={{ $json.statusCode }}"
+        }
+      },
+      "id": "studio-v2-response",
+      "name": "Return actual receipt",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        700,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook v2": {
+      "main": [
+        [
+          {
+            "node": "Preserve full v2 payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preserve full v2 payload": {
+      "main": [
+        [
+          {
+            "node": "Save complete content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save complete content": {
+      "main": [
+        [
+          {
+            "node": "Return actual receipt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false
+  }
+}

@@ -56,3 +56,10 @@ test-videos/*.mp4
 # Logs
 logs/*.log
 *.log
+
+# Databases & Runtime data
+database.sqlite
+*.sqlite
+*.sqlite3
+data/
+

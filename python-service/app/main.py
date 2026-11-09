@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from app import notion_client, token_storage
+from app import notion_client, token_storage, handoff_v2
 from app.logger import get_logger
 from app.notifier import send_telegram_alert
 from app.tiktok_client import (
@@ -33,6 +33,9 @@ app = FastAPI(
     version="0.2.0",
     description="Microservice cho hệ thống AI Content & TikTok Automation"
 )
+
+# Đăng ký router Content Studio v2
+app.include_router(handoff_v2.router)
 
 # ===== Models =====
 class HealthResponse(BaseModel):
@@ -367,6 +370,27 @@ def content_ai_output(payload: AIOutputRequest):
 @app.patch("/api/v1/content/{request_id}/status", response_model=ApiResponse)
 def update_content_status(request_id: str, payload: StatusUpdateRequest):
     try:
+        current = notion_client.get_content_by_id(request_id)
+        if not current:
+            return {
+                "success": False,
+                "data": None,
+                "error": {"code": "CONTENT_NOT_FOUND", "message": f"Khong tim thay request_id {request_id} trong Notion"},
+                "meta": make_meta()
+            }
+
+        current_status = current.get("status")
+        if current_status in ["PUBLISHED", "PUBLISHING"] and payload.status in ["APPROVED", "NEEDS_REVISION", "PENDING_REVIEW"]:
+            return {
+                "success": False,
+                "data": None,
+                "error": {
+                    "code": "INVALID_STATUS_TRANSITION",
+                    "message": f"Khong the chuyen trang thai noi dung tu {current_status} sang {payload.status}."
+                },
+                "meta": make_meta()
+            }
+
         page_id = notion_client.update_status(
             request_id, payload.status, payload.reviewed_by, payload.note
         )
@@ -374,7 +398,7 @@ def update_content_status(request_id: str, payload: StatusUpdateRequest):
             return {
                 "success": False,
                 "data": None,
-                "error": {"code": "CONTENT_NOT_FOUND", "message": "Không tìm thấy request_id trong Notion"},
+                "error": {"code": "CONTENT_NOT_FOUND", "message": "Khong the cap nhat status trong Notion"},
                 "meta": make_meta()
             }
         return {
@@ -715,7 +739,41 @@ def publish_from_url(payload: PublishRequest, request: Request):
     content = None
     try:
         content = notion_client.get_content_by_id(payload.request_id)
-        current_retry = (content.get("retry_count") or 0) if content else 0
+        if not content:
+            return {
+                "success": False,
+                "data": None,
+                "error": {
+                    "code": "CONTENT_NOT_FOUND",
+                    "message": f"Khong tim thay noi dung voi request_id={payload.request_id}."
+                },
+                "meta": make_meta(req_id)
+            }
+
+        current_status = content.get("status")
+        if current_status == "PUBLISHING":
+            return {
+                "success": False,
+                "data": None,
+                "error": {
+                    "code": "CONTENT_ALREADY_PUBLISHING",
+                    "message": f"Noi dung dang trong qua trinh publish (locked_by={content.get('locked_by')}). Khong the goi trung lap."
+                },
+                "meta": make_meta(req_id)
+            }
+
+        if current_status not in ["APPROVED", "SCHEDULED"]:
+            return {
+                "success": False,
+                "data": None,
+                "error": {
+                    "code": "CONTENT_NOT_APPROVED",
+                    "message": f"Noi dung chua duoc phe duyet de publish (trang thai hien tai: {current_status}). Chi chap nhan APPROVED hoac SCHEDULED."
+                },
+                "meta": make_meta(req_id)
+            }
+
+        current_retry = content.get("retry_count") or 0
         if current_retry >= 3:
             return {
                 "success": False,
@@ -726,6 +784,21 @@ def publish_from_url(payload: PublishRequest, request: Request):
                 },
                 "meta": make_meta(req_id)
             }
+
+        # Atomically claim lock neu chua co
+        exec_lock_id = f"pub_{req_id[:8]}" if req_id else f"pub_{int(datetime.now(timezone.utc).timestamp())}"
+        if current_status == "APPROVED":
+            lock_res = notion_client.lock_and_publish(payload.request_id, exec_lock_id)
+            if not lock_res.get("locked"):
+                return {
+                    "success": False,
+                    "data": None,
+                    "error": {
+                        "code": "LOCK_ACQUISITION_FAILED",
+                        "message": f"Khong the khoa noi dung de publish (ly do: {lock_res.get('reason')})."
+                    },
+                    "meta": make_meta(req_id)
+                }
 
         video_url = payload.video_url
         if not video_url:
@@ -788,7 +861,41 @@ def publish_from_file(payload: PublishRequest, request: Request):
     req_id = getattr(request.state, "request_id", None)
     try:
         content = notion_client.get_content_by_id(payload.request_id)
-        current_retry = (content.get("retry_count") or 0) if content else 0
+        if not content:
+            return {
+                "success": False,
+                "data": None,
+                "error": {
+                    "code": "CONTENT_NOT_FOUND",
+                    "message": f"Khong tim thay noi dung voi request_id={payload.request_id}."
+                },
+                "meta": make_meta(req_id)
+            }
+
+        current_status = content.get("status")
+        if current_status == "PUBLISHING":
+            return {
+                "success": False,
+                "data": None,
+                "error": {
+                    "code": "CONTENT_ALREADY_PUBLISHING",
+                    "message": f"Noi dung dang trong qua trinh publish (locked_by={content.get('locked_by')}). Khong the goi trung lap."
+                },
+                "meta": make_meta(req_id)
+            }
+
+        if current_status not in ["APPROVED", "SCHEDULED"]:
+            return {
+                "success": False,
+                "data": None,
+                "error": {
+                    "code": "CONTENT_NOT_APPROVED",
+                    "message": f"Noi dung chua duoc phe duyet de publish (trang thai hien tai: {current_status}). Chi chap nhan APPROVED hoac SCHEDULED."
+                },
+                "meta": make_meta(req_id)
+            }
+
+        current_retry = content.get("retry_count") or 0
         if current_retry >= 3:
             return {
                 "success": False,
@@ -799,6 +906,21 @@ def publish_from_file(payload: PublishRequest, request: Request):
                 },
                 "meta": make_meta(req_id)
             }
+
+        # Atomically claim lock neu chua co
+        exec_lock_id = f"pub_{req_id[:8]}" if req_id else f"pub_{int(datetime.now(timezone.utc).timestamp())}"
+        if current_status == "APPROVED":
+            lock_res = notion_client.lock_and_publish(payload.request_id, exec_lock_id)
+            if not lock_res.get("locked"):
+                return {
+                    "success": False,
+                    "data": None,
+                    "error": {
+                        "code": "LOCK_ACQUISITION_FAILED",
+                        "message": f"Khong the khoa noi dung de publish (ly do: {lock_res.get('reason')})."
+                    },
+                    "meta": make_meta(req_id)
+                }
 
         if not payload.video_path:
             return {

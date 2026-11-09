@@ -182,6 +182,99 @@
       ],
       "id": "8a35c24b-32bf-412e-8483-e18e80a01011",
       "name": "Code Retry Counter"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://python-service:8000/api/v1/content/{{ $json.request_id }}/lock",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\\n  \"execution_id\": \"{{ $execution.id }}\"\\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        880,
+        0
+      ],
+      "id": "node-lock-content",
+      "name": "POST Lock Content"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-lock",
+              "leftValue": "={{ $json.data?.locked }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ],
+      "id": "if-lock-acquired",
+      "name": "IF Lock Acquired"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-max-reached",
+              "leftValue": "={{ $json.max_reached }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        0
+      ],
+      "id": "if-max-reached",
+      "name": "IF Max Reached"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2420,
+        100
+      ],
+      "id": "node-polling-timeout",
+      "name": "NoOp - Polling Timeout"
     }
   ],
   "pinData": {},
@@ -223,7 +316,7 @@
       "main": [
         [
           {
-            "node": "POST Publish From URL",
+            "node": "POST Lock Content",
             "type": "main",
             "index": 0
           }
@@ -307,7 +400,65 @@
       "main": [
         [
           {
+            "node": "IF Max Reached",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST Lock Content": {
+      "main": [
+        [
+          {
+            "node": "IF Lock Acquired",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Lock Acquired": {
+      "main": [
+        [
+          {
+            "node": "POST Publish From URL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Max Reached": {
+      "main": [
+        [
+          {
+            "node": "NoOp - Polling Timeout",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
             "node": "POST Check Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NoOp - Polling Timeout": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
             "type": "main",
             "index": 0
           }
@@ -320,4 +471,3 @@
     "executionOrder": "v1"
   }
 }
-

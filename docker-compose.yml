@@ -29,10 +29,15 @@ services:
       - TIKTOK_CLIENT_SECRET=${TIKTOK_CLIENT_SECRET}
       - TIKTOK_REDIRECT_URI=${TIKTOK_REDIRECT_URI}
       - NOTION_TOKENS_DB_ID=${NOTION_TOKENS_DB_ID}
+      - NOTION_V2_DATABASE_ID=${NOTION_V2_DATABASE_ID:-}
+      - HANDOFF_DATA_DIR=/data
+      - ENABLE_TIKTOK_SANDBOX_SIMULATION=${ENABLE_TIKTOK_SANDBOX_SIMULATION:-false}
     volumes:
       - ./logs:/app/logs
       - ./test-videos:/app/test-videos
+      - handoff_data:/data
     restart: unless-stopped
 
 volumes:
   n8n_data:
+  handoff_data:

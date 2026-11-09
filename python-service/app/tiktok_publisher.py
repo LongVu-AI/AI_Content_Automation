@@ -15,6 +15,7 @@ class TikTokPublisher:
 
     def __init__(self, client: Optional[TikTokClient] = None) -> None:
         self.client = client or TikTokClient()
+        self.enable_sandbox_simulation = os.getenv("ENABLE_TIKTOK_SANDBOX_SIMULATION", "false").lower() in ("true", "1")
 
     def _get_valid_access_token(self) -> str:
         """Lay access token hop le, tu dong refresh neu can."""
@@ -63,8 +64,8 @@ class TikTokPublisher:
                 raise TikTokApiException(f"TikTok API khong tra ve publish_id: {res}")
         except TikTokApiException as e:
             err_msg = str(e)
-            if "url_ownership_unverified" in err_msg or "unaudited_client" in err_msg:
-                logger.warning(f"TikTok Sandbox constraint: {err_msg}. Using sandbox test publish_id.")
+            if self.enable_sandbox_simulation and ("url_ownership_unverified" in err_msg or "unaudited_client" in err_msg):
+                logger.warning(f"TikTok Sandbox simulation active: {err_msg}. Using sandbox test publish_id.")
                 publish_id = f"v_pub_sandbox_{int(datetime.now(timezone.utc).timestamp())}"
             else:
                 raise
@@ -165,8 +166,12 @@ class TikTokPublisher:
         access_token = self._get_valid_access_token()
 
         if publish_id.startswith("v_pub_sandbox_"):
-            tiktok_status = "PUBLISH_COMPLETE"
-            fail_reason = ""
+            if self.enable_sandbox_simulation:
+                tiktok_status = "PUBLISH_COMPLETE"
+                fail_reason = ""
+            else:
+                tiktok_status = "FAILED"
+                fail_reason = "Synthetic sandbox publish_id rejected: sandbox simulation is disabled."
         else:
             try:
                 status_res = self.client.fetch_publish_status(access_token, publish_id)
