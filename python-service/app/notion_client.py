@@ -1,6 +1,6 @@
 import os
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any
 from notion_client import Client
 from notion_client.errors import APIResponseError
@@ -33,14 +33,14 @@ def parse_notion_page(page: dict) -> dict:
             logger.warning(f"Thiếu cột {prop_name} trong Notion DB.")
         prop = props.get(prop_name, {})
         title_arr = prop.get("title", [])
-        return "".join([t.get("plain_text", "") for t in title_arr]) if title_arr else ""
+        return "".join([t.get("plain_text") or t.get("text", {}).get("content", "") for t in title_arr]) if title_arr else ""
 
     def get_rich_text(prop_name):
         if prop_name not in props:
             logger.warning(f"Thiếu cột {prop_name} trong Notion DB.")
         prop = props.get(prop_name, {})
         rt_arr = prop.get("rich_text", [])
-        return "".join([t.get("plain_text", "") for t in rt_arr]) if rt_arr else None
+        return "".join([t.get("plain_text") or t.get("text", {}).get("content", "") for t in rt_arr]) if rt_arr else None
 
     def get_select(prop_name):
         if prop_name not in props:
@@ -90,7 +90,8 @@ def parse_notion_page(page: dict) -> dict:
         "retry_count": get_number("retry_count"),
         "last_error": get_rich_text("last_error"),
         "locked_by": get_rich_text("locked_by"),
-        "locked_at": get_date("locked_at")
+        "locked_at": get_date("locked_at"),
+        "revision": get_number("revision") if "revision" in props else 1
     }
 
 def get_content_by_id(request_id: str) -> dict | None:
@@ -240,19 +241,15 @@ def update_status(request_id: str, status: str, reviewed_by: str | None = None, 
     page = notion.pages.update(page_id=existing_page_id, properties=properties)
     return page["id"]
 
-def get_scheduled_due() -> list:
+def unlock_stale_locks(timeout_minutes: int = 30) -> int:
     """
-    Query Notion DB với filter:
-    - status = "APPROVED"
-    - scheduled_at <= now
-    - locked_by is empty
-    Sort theo scheduled_at asc.
-    Return list items.
+    Tu dong tim va giai phong cac ban ghi bi khoa qua lau (locked_at vuot qua timeout_minutes)
+    ma chua chuyen sang trang thai PUBLISHED, giup he thong tu dong phuc hoi sau su co.
     """
     if not notion or not NOTION_DATABASE_ID:
-        raise Exception("Notion client chưa được khởi tạo (thiếu ENV).")
-        
-    now_str = datetime.now(timezone.utc).isoformat()
+        return 0
+
+    threshold = (datetime.now(timezone.utc) - timedelta(minutes=timeout_minutes)).isoformat()
     try:
         response = notion.databases.query(
             database_id=NOTION_DATABASE_ID,
@@ -261,8 +258,73 @@ def get_scheduled_due() -> list:
                     {
                         "property": "status",
                         "select": {
-                            "equals": "APPROVED"
+                            "does_not_equal": "PUBLISHED"
                         }
+                    },
+                    {
+                        "property": "locked_at",
+                        "date": {
+                            "on_or_before": threshold
+                        }
+                    }
+                ]
+            }
+        )
+        unlocked_count = 0
+        for page in response.get("results", []):
+            page_id = page["id"]
+            props = {
+                "status": {"select": {"name": "APPROVED"}},
+                "locked_by": {"rich_text": []},
+                "locked_at": None,
+                "last_error": {"rich_text": [{"text": {"content": f"Tu dong giai phong khoa (stale lock timeout {timeout_minutes}m)."}}]}
+            }
+            notion.pages.update(page_id=page_id, properties=props)
+            unlocked_count += 1
+        if unlocked_count > 0:
+            logger.warning(f"Da giai phong {unlocked_count} stale locks vuot qua {timeout_minutes} phut.")
+        return unlocked_count
+    except Exception as e:
+        logger.warning(f"Loi khi giai phong stale locks: {e}")
+        return 0
+
+def get_scheduled_due() -> list:
+    """
+    Query Notion DB voi filter:
+    - status = "APPROVED" hoac "SCHEDULED"
+    - scheduled_at <= now
+    - locked_by is empty
+    Sort theo scheduled_at asc.
+    Tu dong goi unlock_stale_locks() de phuc hoi khoa cu.
+    Return list items.
+    """
+    if not notion or not NOTION_DATABASE_ID:
+        raise Exception("Notion client chua duoc khoi tao (thieu ENV).")
+
+    # Tu dong phuc hoi stale locks truoc khi query
+    unlock_stale_locks(timeout_minutes=30)
+        
+    now_str = datetime.now(timezone.utc).isoformat()
+    try:
+        response = notion.databases.query(
+            database_id=NOTION_DATABASE_ID,
+            filter={
+                "and": [
+                    {
+                        "or": [
+                            {
+                                "property": "status",
+                                "select": {
+                                    "equals": "APPROVED"
+                                }
+                            },
+                            {
+                                "property": "status",
+                                "select": {
+                                    "equals": "SCHEDULED"
+                                }
+                            }
+                        ]
                     },
                     {
                         "property": "scheduled_at",
@@ -287,7 +349,7 @@ def get_scheduled_due() -> list:
         )
     except Exception as e:
         if "locked_by" in str(e) or "locked_at" in str(e) or "scheduled_at" in str(e):
-            logger.error("Notion DB thiếu hoặc sai kiểu cột locked_by / locked_at / scheduled_at. Vui lòng kiểm tra lại cấu hình Notion DB.")
+            logger.error("Notion DB thieu hoac sai kieu cot locked_by / locked_at / scheduled_at. Vui long kiem tra lai cau hinh Notion DB.")
         raise e
         
     return [parse_notion_page(page) for page in response.get("results", [])]
@@ -322,7 +384,7 @@ def lock_and_publish(request_id: str, execution_id: str) -> dict:
     page_id = page["id"]
     current_data = parse_notion_page(page)
     
-    if current_data.get("status") != "APPROVED" or current_data.get("locked_by"):
+    if current_data.get("status") not in ["APPROVED", "SCHEDULED"] or current_data.get("locked_by"):
         return {"locked": False, "reason": "already_processed"}
         
     now_str = datetime.now(timezone.utc).isoformat()

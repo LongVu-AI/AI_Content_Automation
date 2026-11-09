@@ -117,10 +117,10 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=http://python-service:8000/api/v1/content/{{ $('Loop Over Items').item.json.request_id }}/publish",
+        "url": "http://python-service:8000/api/v1/tiktok/publish-from-url",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"execution_id\": \"{{ $execution.id }}\"\n}",
+        "jsonBody": "={\n  \"request_id\": \"{{ $('Loop Over Items').item.json.request_id }}\",\n  \"video_url\": \"{{ $('Loop Over Items').item.json.video_url }}\",\n  \"title\": \"{{ $('Loop Over Items').item.json.product_name || 'AI TikTok Video' }}\",\n  \"privacy_level\": \"SELF_ONLY\"\n}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -272,4 +272,3 @@
     "executionOrder": "v1"
   }
 }
-

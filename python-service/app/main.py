@@ -88,6 +88,7 @@ class StatusUpdateRequest(BaseModel):
     status: Literal["PENDING_REVIEW", "APPROVED", "NEEDS_REVISION", "PUBLISHING", "PUBLISHED", "FAILED", "SCHEDULED"]
     reviewed_by: Optional[str] = None
     note: Optional[str] = None
+    revision: Optional[int] = None
 
 class ExecutionRequest(BaseModel):
     execution_id: str
@@ -387,6 +388,19 @@ def update_content_status(request_id: str, payload: StatusUpdateRequest):
                 "error": {
                     "code": "INVALID_STATUS_TRANSITION",
                     "message": f"Khong the chuyen trang thai noi dung tu {current_status} sang {payload.status}."
+                },
+                "meta": make_meta()
+            }
+
+        # Kiem tra version/revision de tranh duyet nham ban cu
+        current_revision = current.get("revision")
+        if current_revision and payload.revision and payload.revision < current_revision:
+            return {
+                "success": False,
+                "data": None,
+                "error": {
+                    "code": "STALE_REVISION",
+                    "message": f"Phien ban duyet (r{payload.revision}) da cu hon phien ban hien tai (r{current_revision})."
                 },
                 "meta": make_meta()
             }
@@ -814,6 +828,17 @@ def publish_from_url(payload: PublishRequest, request: Request):
                     },
                     "meta": make_meta(req_id)
                 }
+
+        if "drive.google.com/drive/folders" in video_url:
+            return {
+                "success": False,
+                "data": None,
+                "error": {
+                    "code": "INVALID_DIRECT_VIDEO_URL",
+                    "message": "Link Google Drive folder chi dung de xem review tren Telegram, khong the dung cho TikTok PULL_FROM_URL vi khong phai file MP4 truc tiep. Vui long su dung endpoint /publish-from-file de upload file local hoac cung cap direct URL MP4."
+                },
+                "meta": make_meta(req_id)
+            }
 
         result = tiktok_publisher.publish_from_url(
             request_id=payload.request_id,
